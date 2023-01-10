@@ -6,26 +6,34 @@ import re
 import json
 import os
 import argparse
+import io
+from multiprocessing import cpu_count
+import time
+import gc
+
+
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]
+
 
 class PosAnalyser:
     def __init__(self, plies):
         self.matching_plies = plies
 
-    def ana_pos(self, filename):
-        pgnfilein = open(filename, "r", encoding="utf-8-sig", errors="surrogateescape")
-        gameCounter = 0
+    def ana_pos(self, pgn, offsets):
         matstats = Counter()
 
         p = re.compile("([+-]*M*[0-9.]*)/([0-9]*)")
         mateRe = re.compile("([+-])M[0-9]*")
 
-        while True:
+        for offset in offsets:
             # read game
-            game = chess.pgn.read_game(pgnfilein)
+            pgn.seek(offset)
+            game = chess.pgn.read_game(pgn)
             if game == None:
                 break
-
-            gameCounter = gameCounter + 1
 
             # get result
             result = game.headers["Result"]
@@ -61,13 +69,17 @@ class PosAnalyser:
                             score = -1001
                     else:
                         score = int(float(score) * 100)
+
                         if score > 1000:
                             score = 1000
                         elif score < -1000:
                             score = -1000
+
                         score = (score // 5) * 5  # reduce precision
+
                     if turn == chess.BLACK:
                         score = -score
+
                     scorekey = score
 
                 knights = bin(board.knights).count("1")
@@ -83,8 +95,8 @@ class PosAnalyser:
 
                 board = node.board()
 
-        pgnfilein.close()
         return matstats
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -95,26 +107,62 @@ if __name__ == "__main__":
         default=6,
         help="Number of plies that the material situation needs to be on the board (unused).",
     )
-    
+
     parser.add_argument(
-        "--dir",
-        type=str,
-        default="pgns",
-        help="Directory with the pgns."
+        "--dir", type=str, default="pgns", help="Directory with the pgns."
     )
-    
+
     args = parser.parse_args()
 
     pgns = [args.dir + "/" + f for f in os.listdir(args.dir) if f.endswith("pgn")]
-    
+
+    # Combine all pgns
+    combined = ""
+
+    for file in pgns:
+        with open(file) as fp:
+            data = fp.read()
+            combined += data
+            combined += "\n"
+
+    pgn = io.StringIO(combined)
+
+    del combined
+    gc.collect()
+
+    offsets = []
+
+    while True:
+        # save offsets
+        offset = pgn.tell()
+        headers = chess.pgn.read_headers(pgn)
+
+        if headers is None:
+            break
+
+        offsets.append(offset)
+
     # map sharp_pos to all pgn files using an executor
     ana = PosAnalyser(args.matching_plies)
 
+    # split up pgns across workers
+    workers = cpu_count()
+    fw_ratio = len(offsets) / (4 * workers)
+    offsets = list(chunks(offsets, max(1, int(fw_ratio))))
+
+    t0 = time.time()
+
+    futures = []
     res = Counter()
     with concurrent.futures.ProcessPoolExecutor() as e:
-        results = e.map(ana.ana_pos, pgns, chunksize=100)
-        for r in results:
-            res.update(r)
+        for entry in offsets:
+            futures.append(e.submit(ana.ana_pos, pgn, entry))
+    for future in futures:
+        res.update(future.result())
+
+    t1 = time.time()
+
+    print("Completed in:", str(t1 - t0) + " seconds")
 
     # and print all the fens
     with open("scoreWLDstat.json", "w") as outfile:
