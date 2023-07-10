@@ -44,7 +44,7 @@ class PosAnalyzer {
                     break;
                 }
 
-                if (game.value().headers().count("Result") == 0) {
+                if (game.value().headers().find("Result") != game.value().headers().end()) {
                     break;
                 }
 
@@ -69,7 +69,7 @@ class PosAnalyzer {
 
                 Board board = Board();
 
-                if (game.value().headers().count("FEN")) {
+                if (game.value().headers().find("FEN") != game.value().headers().end()) {
                     board.setFen(game.value().headers().at("FEN"));
                 }
 
