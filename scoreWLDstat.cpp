@@ -31,6 +31,7 @@ class PosAnalyzer {
    public:
     [[nodiscard]] std::unordered_map<std::string, int> pos_map(std::vector<std::string> files) {
         std::unordered_map<std::string, int> pos_map;
+        pos_map.reserve(70000);
 
         for (auto file : files) {
             std::ifstream pgnFile(file);
