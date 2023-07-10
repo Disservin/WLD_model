@@ -110,7 +110,7 @@ class PosAnalyzer {
                                 score_adjusted = -1000;
                             }
 
-                            score_key = (score_adjusted / 5) * 5;
+                            score_key = int(std::floor(score_adjusted / 5.0)) * 5;
                         }
                     }
 
