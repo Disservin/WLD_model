@@ -1,7 +1,17 @@
+#include <atomic>
+#include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <future>
 #include <iostream>
+#include <mutex>
+#include <queue>
+#include <stdexcept>
 #include <string>
+#include <thread>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
@@ -19,8 +29,8 @@ struct ResultKey {
 
 class PosAnalyzer {
    public:
-    std::unordered_map<std::string, int> posMap(std::vector<std::string> files) {
-        std::unordered_map<std::string, int> posMap;
+    std::unordered_map<std::string, int> pos_map(std::vector<std::string> files) {
+        std::unordered_map<std::string, int> pos_map;
 
         for (auto file : files) {
             std::ifstream pgnFile(file);
@@ -62,7 +72,7 @@ class PosAnalyzer {
                     board.setFen(game.value().headers().at("FEN"));
                 }
 
-                for (const auto &move : game.value().moves()) {
+                for (const auto& move : game.value().moves()) {
                     plies++;
 
                     if (plies > 400) {
@@ -125,7 +135,7 @@ class PosAnalyzer {
                                              std::to_string(matcountkey) + ", " +
                                              std::to_string(score_key) + ")";
 
-                        posMap[map_key]++;
+                        pos_map[map_key]++;
                     }
 
                     board.makeMove(move.move);
@@ -135,7 +145,7 @@ class PosAnalyzer {
             pgnFile.close();
         }
 
-        return posMap;
+        return pos_map;
     }
 
    private:
@@ -146,28 +156,153 @@ class PosAnalyzer {
 std::vector<std::string> getFiles() {
     std::string path = "./pgns";
     std::vector<std::string> files;
-    for (const auto &entry : fs::directory_iterator(path)) {
+    for (const auto& entry : fs::directory_iterator(path)) {
         files.push_back(entry.path());
-        std::cout << entry.path() << std::endl;
     }
 
     return files;
 }
 
-int main(int argc, char const *argv[]) {
-    PosAnalyzer analyzer = PosAnalyzer();
+std::vector<std::vector<std::string>> chunkPgns(const std::vector<std::string>& pgns,
+                                                int targetchunks) {
+    int chunks_size = (pgns.size() + targetchunks - 1) / targetchunks;
+    std::vector<std::vector<std::string>> pgnschunked;
 
-    std::vector<std::string> files = getFiles();
+    auto begin = pgns.begin();
+    auto end = pgns.end();
+    while (begin != end) {
+        auto next =
+            std::next(begin, std::min(chunks_size, static_cast<int>(std::distance(begin, end))));
+        pgnschunked.push_back(std::vector<std::string>(begin, next));
+        begin = next;
+    }
 
-    std::unordered_map<std::string, int> posMap = analyzer.posMap(files);
+    return pgnschunked;
+}
 
-    std::ofstream outFile("posMap.json");
+/// @brief https://github.com/Disservin/fast-chess/blob/master/src/matchmaking/threadpool.hpp
+class ThreadPool {
+   public:
+    ThreadPool(std::size_t num_threads) : stop_(false) {
+        for (std::size_t i = 0; i < num_threads; ++i) workers_.emplace_back([this] { work(); });
+    }
+
+    template <class F, class... Args>
+    auto enqueue(F&& f, Args&&... args)
+        -> std::future<typename std::invoke_result<F, Args...>::type> {
+        using return_type = typename std::invoke_result<F, Args...>::type;
+
+        auto task = std::make_shared<std::packaged_task<return_type()>>(
+            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+
+        std::future<return_type> res = task->get_future();
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+            if (stop_) throw std::runtime_error("Warning: enqueue on stopped ThreadPool");
+            tasks_.emplace([task]() { (*task)(); });
+        }
+        condition_.notify_one();
+        return res;
+    }
+
+    void kill() {
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+            stop_ = true;
+            tasks_ = {};
+        }
+
+        condition_.notify_all();
+        for (auto& worker : workers_) {
+            if (worker.joinable()) {
+                worker.join();
+            }
+        }
+
+        workers_.clear();
+    }
+
+    ~ThreadPool() { kill(); }
+
+    std::size_t queueSize() {
+        std::unique_lock<std::mutex> lock(this->queue_mutex_);
+        return tasks_.size();
+    }
+
+    bool getStop() { return stop_; }
+
+   private:
+    void work() {
+        while (!this->stop_) {
+            std::function<void()> task;
+            {
+                std::unique_lock<std::mutex> lock(this->queue_mutex_);
+                this->condition_.wait(lock,
+                                      [this] { return this->stop_ || !this->tasks_.empty(); });
+                if (this->stop_ && this->tasks_.empty()) return;
+                task = std::move(this->tasks_.front());
+                this->tasks_.pop();
+            }
+            task();
+        }
+    }
+
+    std::vector<std::thread> workers_;
+    std::queue<std::function<void()>> tasks_;
+    std::mutex queue_mutex_;
+    std::condition_variable condition_;
+
+    std::atomic_bool stop_;
+};
+
+int main(int argc, char const* argv[]) {
+    const auto files_pgn = getFiles();
+
+    int targetchunks = 100 * std::max(1, int(std::thread::hardware_concurrency()));
+    std::vector<std::vector<std::string>> files_chunked = chunkPgns(files_pgn, targetchunks);
+
+    std::cout << "Found " << files_pgn.size() << " pgn files, creating " << files_chunked.size()
+              << " chunks for processing." << std::endl;
+
+    std::vector<std::future<std::unordered_map<std::string, int>>> fut;
+
+    ThreadPool pool(std::thread::hardware_concurrency());
+
+    const auto t0 = std::chrono::high_resolution_clock::now();
+
+    for (const auto& files : files_chunked) {
+        fut.emplace_back(pool.enqueue([&files]() {
+            PosAnalyzer analyzer = PosAnalyzer();
+
+            return analyzer.pos_map(files);
+        }));
+    }
+
+    // Combine the results from all threads
+    std::unordered_map<std::string, int> pos_map;
+
+    for (auto& f : fut) {
+        auto local_map = f.get();
+
+        for (const auto& pair : local_map) {
+            pos_map[pair.first] += pair.second;
+        }
+    }
+
+    const auto t1 = std::chrono::high_resolution_clock::now();
+
+    std::cout << "Time taken: " << std::chrono::duration_cast<std::chrono::seconds>(t1 - t0).count()
+              << "s" << std::endl;
+
+    std::cout << "Retained " << pos_map.size() << " scored positions for analysis." << std::endl;
 
     // save json
 
+    std::ofstream outFile("scoreWLDstat.json");
+
     nlohmann::json j;
 
-    for (const auto &pair : posMap) {
+    for (const auto& pair : pos_map) {
         j[pair.first] = pair.second;
     }
 
