@@ -2,4 +2,5 @@ pgns
 *.png
 *.json
 
+pgns*
 main*
