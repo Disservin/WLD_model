@@ -81,8 +81,6 @@ class PosAnalyzer {
                         break;
                     }
 
-                    const auto turn = board.sideToMove();
-
                     const auto match_score = utils::splitString(move.comment, '/');
 
                     const int plieskey = (plies + 1) / 2;
