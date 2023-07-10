@@ -204,7 +204,6 @@ int main(int argc, char const *argv[]) {
         files_pgn = getFiles(*path);
     } else {
         files_pgn = getFiles();
-        return 0;
     }
 
     int targetchunks = 100 * std::max(1, int(std::thread::hardware_concurrency()));
