@@ -2897,6 +2897,30 @@ struct Game {
 
 namespace pgn {
 
+inline std::pair<std::string, std::string> extractHeader(const std::string &line) {
+    std::string key;
+    std::string value;
+
+    bool readingKey = false;
+    bool readingValue = false;
+
+    for (const auto c : line) {
+        if (c == '[') {
+            readingKey = true;
+        } else if (c == '"') {
+            readingValue = !readingValue;
+        } else if (readingKey && c == ' ') {
+            readingKey = false;
+        } else if (readingKey) {
+            key += c;
+        } else if (readingValue) {
+            value += c;
+        }
+    }
+
+    return {key, value};
+}
+
 /// @brief Extract and parse the move, plus any comments it might have.
 /// @param board
 /// @param line
@@ -2980,11 +3004,12 @@ inline std::optional<Game> readGame(std::ifstream &file) {
             }
 
             // Parse the header
-            const auto match = utils::regex(line, "\\[([A-Za-z0-9]+)\\s+\"(.*)\"\\]");
-            headers[match.str(1)] = match.str(2);
+            const auto header = extractHeader(line);
 
-            if (match.str(1) == "FEN") {
-                board.setFen(match.str(2));
+            headers[header.first] = header.second;
+
+            if (header.first == "FEN") {
+                board.setFen(header.second);
             }
         } else {
             // Parse the moves
