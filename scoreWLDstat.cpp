@@ -17,6 +17,7 @@
 
 #include "chess.hpp"
 #include "json.hpp"
+#include "threadpool.hpp"
 
 using namespace chess;
 
@@ -80,11 +81,11 @@ class PosAnalyzer {
                         break;
                     }
 
-                    const int plieskey = (plies + 1) / 2;
-
                     const auto turn = board.sideToMove();
 
                     const auto match_score = utils::splitString(move.comment, '/');
+
+                    const int plieskey = (plies + 1) / 2;
 
                     int score_key = 0;
 
@@ -146,9 +147,10 @@ class PosAnalyzer {
     }
 };
 
-[[nodiscard]] std::vector<std::string> getFiles() {
-    std::string path = "./pgns";
-
+/// @brief Get all files from a directory.
+/// @param path
+/// @return
+[[nodiscard]] std::vector<std::string> getFiles(std::string_view path = "./pgns") {
     std::vector<std::string> files;
 
     for (const auto &entry : fs::directory_iterator(path)) {
@@ -158,10 +160,15 @@ class PosAnalyzer {
     return files;
 }
 
+/// @brief Split into successive n-sized chunks from pgns.
+/// @param pgns
+/// @param targetchunks
+/// @return
 [[nodiscard]] std::vector<std::vector<std::string>> chunkPgns(const std::vector<std::string> &pgns,
                                                               int targetchunks) {
-    int chunks_size = (pgns.size() + targetchunks - 1) / targetchunks;
     std::vector<std::vector<std::string>> pgnschunked;
+
+    int chunks_size = (pgns.size() + targetchunks - 1) / targetchunks;
 
     auto begin = pgns.begin();
     auto end = pgns.end();
@@ -176,82 +183,6 @@ class PosAnalyzer {
     return pgnschunked;
 }
 
-/// @brief
-/// https://github.com/Disservin/fast-chess/blob/master/src/matchmaking/threadpool.hpp
-class ThreadPool {
-   public:
-    ThreadPool(std::size_t num_threads) : stop_(false) {
-        for (std::size_t i = 0; i < num_threads; ++i) workers_.emplace_back([this] { work(); });
-    }
-
-    template <class F, class... Args>
-    [[nodiscard]] auto enqueue(F &&f, Args &&...args)
-        -> std::future<typename std::invoke_result<F, Args...>::type> {
-        using return_type = typename std::invoke_result<F, Args...>::type;
-
-        auto task = std::make_shared<std::packaged_task<return_type()>>(
-            std::bind(std::forward<F>(f), std::forward<Args>(args)...));
-
-        std::future<return_type> res = task->get_future();
-        {
-            std::unique_lock<std::mutex> lock(queue_mutex_);
-            if (stop_) throw std::runtime_error("Warning: enqueue on stopped ThreadPool");
-            tasks_.emplace([task]() { (*task)(); });
-        }
-        condition_.notify_one();
-        return res;
-    }
-
-    void kill() {
-        {
-            std::unique_lock<std::mutex> lock(queue_mutex_);
-            stop_ = true;
-            tasks_ = {};
-        }
-
-        condition_.notify_all();
-        for (auto &worker : workers_) {
-            if (worker.joinable()) {
-                worker.join();
-            }
-        }
-
-        workers_.clear();
-    }
-
-    ~ThreadPool() { kill(); }
-
-    [[nodiscard]] std::size_t queueSize() {
-        std::unique_lock<std::mutex> lock(this->queue_mutex_);
-        return tasks_.size();
-    }
-
-    [[nodiscard]] bool getStop() { return stop_; }
-
-   private:
-    void work() {
-        while (!this->stop_) {
-            std::function<void()> task;
-            {
-                std::unique_lock<std::mutex> lock(this->queue_mutex_);
-                this->condition_.wait(lock,
-                                      [this] { return this->stop_ || !this->tasks_.empty(); });
-                if (this->stop_ && this->tasks_.empty()) return;
-                task = std::move(this->tasks_.front());
-                this->tasks_.pop();
-            }
-            task();
-        }
-    }
-
-    std::vector<std::thread> workers_;
-    std::queue<std::function<void()>> tasks_;
-    std::mutex queue_mutex_;
-    std::condition_variable condition_;
-
-    std::atomic_bool stop_;
-};
-
 int main(int argc, char const *argv[]) {
     const auto files_pgn = getFiles();
 
@@ -262,9 +193,11 @@ int main(int argc, char const *argv[]) {
     std::cout << "Found " << files_pgn.size() << " pgn files, creating " << files_chunked.size()
               << " chunks for processing." << std::endl;
 
-    std::vector<std::future<std::unordered_map<std::string, int>>> fut;
-
+    // Create a thread pool
     ThreadPool pool(std::thread::hardware_concurrency());
+
+    // Futures hold the results of each thread
+    std::vector<std::future<std::unordered_map<std::string, int>>> fut;
 
     const auto t0 = std::chrono::high_resolution_clock::now();
 
@@ -276,9 +209,9 @@ int main(int argc, char const *argv[]) {
         }));
     }
 
-    // Combine the results from all threads
     std::unordered_map<std::string, int> pos_map;
 
+    // Combine the results from all threads
     for (auto &f : fut) {
         auto local_map = f.get();
 
