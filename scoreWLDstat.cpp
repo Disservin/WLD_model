@@ -89,7 +89,7 @@ class PosAnalyzer {
 
                     bool found_score = false;
 
-                    if (match_score.size() >= 1) {
+                    if (match_score.size() >= 1 && move.comment != "book") {
                         found_score = true;
 
                         if (match_score[0][1] == 'M') {
@@ -181,8 +181,25 @@ class PosAnalyzer {
     return pgnschunked;
 }
 
+/// @brief
+/// @param argc
+/// @param argv Possible ones are --dir and --file
+/// @return
 int main(int argc, char const *argv[]) {
-    const auto files_pgn = getFiles();
+    const std::vector<std::string> args(argv + 1, argv + argc);
+
+    std::vector<std::string> files_pgn;
+
+    if (std::find(args.begin(), args.end(), "--dir") != args.end()) {
+        const auto path = std::find(args.begin(), args.end(), "--dir") + 1;
+        files_pgn = getFiles(*path);
+    } else if (std::find(args.begin(), args.end(), "--file") != args.end()) {
+        const auto path = std::find(args.begin(), args.end(), "--file") + 1;
+        files_pgn = getFiles(*path);
+    } else {
+        files_pgn = getFiles();
+        return 0;
+    }
 
     int targetchunks = 100 * std::max(1, int(std::thread::hardware_concurrency()));
 
