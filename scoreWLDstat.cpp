@@ -74,6 +74,12 @@ class PosAnalyzer {
                     board.setFen(game.value().headers().at("FEN"));
                 }
 
+                if (game.value().headers().find("Variant") != game.value().headers().end()) {
+                    if (game.value().headers().at("Variant") == "fischerandom") {
+                        board.set960(true);
+                    }
+                }
+
                 for (const auto &move : game.value().moves()) {
                     plies++;
 
