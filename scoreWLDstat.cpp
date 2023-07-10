@@ -29,7 +29,7 @@ struct ResultKey {
 
 class PosAnalyzer {
    public:
-    std::unordered_map<std::string, int> pos_map(std::vector<std::string> files) {
+    [[nodiscard]] std::unordered_map<std::string, int> pos_map(std::vector<std::string> files) {
         std::unordered_map<std::string, int> pos_map;
 
         for (auto file : files) {
@@ -153,9 +153,11 @@ class PosAnalyzer {
     const std::string mate_regex = "([+-])M[0-9]*";
 };
 
-std::vector<std::string> getFiles() {
+[[nodiscard]] std::vector<std::string> getFiles() {
     std::string path = "./pgns";
+
     std::vector<std::string> files;
+
     for (const auto& entry : fs::directory_iterator(path)) {
         files.push_back(entry.path());
     }
@@ -163,8 +165,8 @@ std::vector<std::string> getFiles() {
     return files;
 }
 
-std::vector<std::vector<std::string>> chunkPgns(const std::vector<std::string>& pgns,
-                                                int targetchunks) {
+[[nodiscard]] std::vector<std::vector<std::string>> chunkPgns(const std::vector<std::string>& pgns,
+                                                              int targetchunks) {
     int chunks_size = (pgns.size() + targetchunks - 1) / targetchunks;
     std::vector<std::vector<std::string>> pgnschunked;
 
@@ -188,7 +190,7 @@ class ThreadPool {
     }
 
     template <class F, class... Args>
-    auto enqueue(F&& f, Args&&... args)
+    [[nodiscard]] auto enqueue(F&& f, Args&&... args)
         -> std::future<typename std::invoke_result<F, Args...>::type> {
         using return_type = typename std::invoke_result<F, Args...>::type;
 
@@ -224,12 +226,12 @@ class ThreadPool {
 
     ~ThreadPool() { kill(); }
 
-    std::size_t queueSize() {
+    [[nodiscard]] std::size_t queueSize() {
         std::unique_lock<std::mutex> lock(this->queue_mutex_);
         return tasks_.size();
     }
 
-    bool getStop() { return stop_; }
+    [[nodiscard]] bool getStop() { return stop_; }
 
    private:
     void work() {
