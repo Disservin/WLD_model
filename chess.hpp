@@ -2843,7 +2843,7 @@ namespace pgn {
 /// @param board
 /// @param line
 /// @return
-std::vector<PgnMove> extractMoves(Board &board, std::string line) {
+std::vector<PgnMove> extractMoves(Board &board, std::string_view line) {
     std::vector<PgnMove> moves;
 
     std::string move;
