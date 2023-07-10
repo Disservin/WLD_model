@@ -72,7 +72,7 @@ class PosAnalyzer {
                     board.setFen(game.value().headers().at("FEN"));
                 }
 
-                for (const auto& move : game.value().moves()) {
+                for (const auto &move : game.value().moves()) {
                     plies++;
 
                     if (plies > 400) {
@@ -158,20 +158,21 @@ class PosAnalyzer {
 
     std::vector<std::string> files;
 
-    for (const auto& entry : fs::directory_iterator(path)) {
-        files.push_back(entry.path());
+    for (const auto &entry : fs::directory_iterator(path)) {
+        files.push_back(entry.path().string());
     }
 
     return files;
 }
 
-[[nodiscard]] std::vector<std::vector<std::string>> chunkPgns(const std::vector<std::string>& pgns,
+[[nodiscard]] std::vector<std::vector<std::string>> chunkPgns(const std::vector<std::string> &pgns,
                                                               int targetchunks) {
     int chunks_size = (pgns.size() + targetchunks - 1) / targetchunks;
     std::vector<std::vector<std::string>> pgnschunked;
 
     auto begin = pgns.begin();
     auto end = pgns.end();
+
     while (begin != end) {
         auto next =
             std::next(begin, std::min(chunks_size, static_cast<int>(std::distance(begin, end))));
@@ -182,7 +183,8 @@ class PosAnalyzer {
     return pgnschunked;
 }
 
-/// @brief https://github.com/Disservin/fast-chess/blob/master/src/matchmaking/threadpool.hpp
+/// @brief
+/// https://github.com/Disservin/fast-chess/blob/master/src/matchmaking/threadpool.hpp
 class ThreadPool {
    public:
     ThreadPool(std::size_t num_threads) : stop_(false) {
@@ -190,7 +192,7 @@ class ThreadPool {
     }
 
     template <class F, class... Args>
-    [[nodiscard]] auto enqueue(F&& f, Args&&... args)
+    [[nodiscard]] auto enqueue(F &&f, Args &&...args)
         -> std::future<typename std::invoke_result<F, Args...>::type> {
         using return_type = typename std::invoke_result<F, Args...>::type;
 
@@ -215,7 +217,7 @@ class ThreadPool {
         }
 
         condition_.notify_all();
-        for (auto& worker : workers_) {
+        for (auto &worker : workers_) {
             if (worker.joinable()) {
                 worker.join();
             }
@@ -257,7 +259,7 @@ class ThreadPool {
     std::atomic_bool stop_;
 };
 
-int main(int argc, char const* argv[]) {
+int main(int argc, char const *argv[]) {
     const auto files_pgn = getFiles();
 
     int targetchunks = 100 * std::max(1, int(std::thread::hardware_concurrency()));
@@ -272,7 +274,7 @@ int main(int argc, char const* argv[]) {
 
     const auto t0 = std::chrono::high_resolution_clock::now();
 
-    for (const auto& files : files_chunked) {
+    for (const auto &files : files_chunked) {
         fut.emplace_back(pool.enqueue([&files]() {
             PosAnalyzer analyzer = PosAnalyzer();
 
@@ -283,10 +285,10 @@ int main(int argc, char const* argv[]) {
     // Combine the results from all threads
     std::unordered_map<std::string, int> pos_map;
 
-    for (auto& f : fut) {
+    for (auto &f : fut) {
         auto local_map = f.get();
 
-        for (const auto& pair : local_map) {
+        for (const auto &pair : local_map) {
             pos_map[pair.first] += pair.second;
         }
     }
@@ -304,7 +306,7 @@ int main(int argc, char const* argv[]) {
 
     nlohmann::json j;
 
-    for (const auto& pair : pos_map) {
+    for (const auto &pair : pos_map) {
         j[pair.first] = pair.second;
     }
 
