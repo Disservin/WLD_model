@@ -83,28 +83,24 @@ class PosAnalyzer {
 
                     const auto turn = board.sideToMove();
 
-                    const auto match = utils::regex(move.comment, score_regex_);
+                    const auto match_score = utils::splitString(move.comment, '/');
 
                     int score_key = 0;
 
                     bool found_score = false;
 
-                    if (!match.str(1).empty()) {
+                    if (match_score.size() >= 1) {
                         found_score = true;
 
-                        const auto match_mate = utils::regex(move.comment, mate_regex);
-
-                        if (!match_mate.str(1).empty()) {
-                            const auto mate = match_mate.str(1);
-
-                            if (mate == "+") {
+                        if (match_score[0][1] == 'M') {
+                            if (match_score[0][1] == '+') {
                                 score_key = 1001;
                             } else {
                                 score_key = -1001;
                             }
 
                         } else {
-                            const auto score = std::stof(match.str(1));
+                            const auto score = std::stof(match_score[0]);
 
                             int score_adjusted = score * 100;
 
