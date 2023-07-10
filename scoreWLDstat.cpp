@@ -44,7 +44,7 @@ class PosAnalyzer {
                     break;
                 }
 
-                if (game.value().headers().find("Result") != game.value().headers().end()) {
+                if (game.value().headers().find("Result") == game.value().headers().end()) {
                     break;
                 }
 
