@@ -143,10 +143,6 @@ class PosAnalyzer {
 
         return pos_map;
     }
-
-   private:
-    const std::string score_regex_ = "([+-]*M*[0-9.]*)/([0-9]*)";
-    const std::string mate_regex = "([+-])M[0-9]*";
 };
 
 [[nodiscard]] std::vector<std::string> getFiles() {
@@ -259,6 +255,7 @@ int main(int argc, char const *argv[]) {
     const auto files_pgn = getFiles();
 
     int targetchunks = 100 * std::max(1, int(std::thread::hardware_concurrency()));
+
     std::vector<std::vector<std::string>> files_chunked = chunkPgns(files_pgn, targetchunks);
 
     std::cout << "Found " << files_pgn.size() << " pgn files, creating " << files_chunked.size()
