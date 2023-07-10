@@ -225,9 +225,8 @@ int main(int argc, char const *argv[]) {
     std::cout << "Time taken: " << std::chrono::duration_cast<std::chrono::seconds>(t1 - t0).count()
               << "s" << std::endl;
 
-    std::cout << "Retained " << pos_map.size() << " scored positions for analysis." << std::endl;
-
     // save json
+    std::uint64_t total = 0;
 
     std::ofstream outFile("scoreWLDstat.json");
 
@@ -235,11 +234,14 @@ int main(int argc, char const *argv[]) {
 
     for (const auto &pair : pos_map) {
         j[pair.first] = pair.second;
+        total += pair.second;
     }
 
     outFile << j.dump(4);
 
     outFile.close();
+
+    std::cout << "Retained " << total << " scored positions for analysis." << std::endl;
 
     return 0;
 }
