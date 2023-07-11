@@ -348,7 +348,6 @@ class CastlingRights {
     }
 
     File getRookFile(Color color, CastleSide castle) const {
-        assert(hasCastlingRight(color, castle) && "Castling right does not exist");
         return static_cast<File>(
             castling_rights_.getGroup(2 * static_cast<int>(color) + static_cast<int>(castle)) - 1);
     }
@@ -1556,9 +1555,11 @@ inline void Board::makeMove(const Move &move) {
         castling_rights_.clearCastlingRight(side_to_move_);
     } else if (pt == PieceType::ROOK && utils::ourBackRank(move.from(), side_to_move_)) {
         const auto king_sq = kingSq(side_to_move_);
+        const auto file = move.from() > king_sq ? CastleSide::KING_SIDE : CastleSide::QUEEN_SIDE;
 
-        castling_rights_.clearCastlingRight(
-            side_to_move_, move.from() > king_sq ? CastleSide::KING_SIDE : CastleSide::QUEEN_SIDE);
+        if (castling_rights_.getRookFile(side_to_move_, file) == utils::squareFile(move.from())) {
+            castling_rights_.clearCastlingRight(side_to_move_, file);
+        }
     } else if (pt == PieceType::PAWN) {
         half_moves_ = 0;
 
@@ -2770,8 +2771,7 @@ namespace uci {
 /// @param board
 /// @param san
 /// @return
-[[nodiscard]] inline Move parseSan(const Board &board, std::string san,
-                                   std::vector<PgnMove> &moves_prev) {
+[[nodiscard]] inline Move parseSan(const Board &board, std::string san) {
     Movelist moves;
     movegen::legalmoves(moves, board);
 
@@ -2785,11 +2785,6 @@ namespace uci {
             }
         }
 
-        for (auto move : moves_prev) {
-            std::cout << move.move << std::endl;
-            std::cout << move.comment << std::endl;
-        }
-
         throw std::runtime_error("Illegal San, Step 1: " + san);
 
     } else if (san == "0-0-0" || san == "0-0-0+" || san == "0-0-0#" || san == "O-O-O" ||
@@ -2798,11 +2793,6 @@ namespace uci {
             if (move.typeOf() == Move::CASTLING && move.to() < move.from()) {
                 return move;
             }
-        }
-
-        for (auto move : moves_prev) {
-            std::cout << move.move << std::endl;
-            std::cout << move.comment << std::endl;
         }
 
         throw std::runtime_error("Illegal San, Step 2: " + san);
@@ -3013,7 +3003,7 @@ inline void extractMoves(Board &board, std::vector<PgnMove> &moves, std::string_
             readingComment = false;
 
             if (!move.empty()) {
-                const auto move_internal = uci::parseSan(board, move, moves);
+                const auto move_internal = uci::parseSan(board, move);
                 moves.push_back({move_internal, comment});
 
                 board.makeMove(move_internal);
@@ -3027,7 +3017,7 @@ inline void extractMoves(Board &board, std::vector<PgnMove> &moves, std::string_
             }
 
             if (!move.empty()) {
-                const auto move_internal = uci::parseSan(board, move, moves);
+                const auto move_internal = uci::parseSan(board, move);
                 moves.push_back({move_internal, comment});
 
                 board.makeMove(move_internal);
@@ -3074,9 +3064,7 @@ inline std::optional<Game> readGame(std::ifstream &file) {
             }
 
             if (header.first == "Variant") {
-                if (header.second == "fischerandom") {
-                    board.set960(true);
-                }
+                board.set960(header.second == "fischerandom");
             }
         } else {
             // Parse the moves

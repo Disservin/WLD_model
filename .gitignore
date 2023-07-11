@@ -1,6 +1,9 @@
 pgns
+mnt
+
 *.png
 *.json
+*.pgn
 
 pgns*
 main*

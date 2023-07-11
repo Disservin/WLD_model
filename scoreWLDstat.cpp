@@ -201,7 +201,7 @@ int main(int argc, char const *argv[]) {
         files_pgn = getFiles(*path);
     } else if (std::find(args.begin(), args.end(), "--file") != args.end()) {
         const auto path = std::find(args.begin(), args.end(), "--file") + 1;
-        files_pgn = getFiles(*path);
+        files_pgn = {*path};
     } else {
         files_pgn = getFiles();
     }
