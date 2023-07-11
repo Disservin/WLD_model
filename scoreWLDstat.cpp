@@ -277,15 +277,14 @@ int main(int argc, char const *argv[]) {
 
     nlohmann::json j;
 
-    // for (const auto &pair : pos_map) {
-    //     const auto map_key = "('" + pair.first[0] + "', " + std::to_string(plieskey) +
-    //                          ",
-    //                          " +
-    //                          std::to_string(matcountkey) +
-    //                          ", " + std::to_string(score_key) + ")";
-    //     j[pair.first] = pair.second;
-    //     total += pair.second;
-    // }
+    for (const auto &pair : pos_map) {
+        const auto map_key = "('" + std::to_string(static_cast<int>(std::get<0>(pair.first))) +
+                             "', " + std::to_string(std::get<1>(pair.first)) + ", " +
+                             std::to_string(std::get<2>(pair.first)) + ", " +
+                             std::to_string(std::get<3>(pair.first)) + ")";
+        j[map_key] = pair.second;
+        total += pair.second;
+    }
 
     outFile << j.dump(4);
 
