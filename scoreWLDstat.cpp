@@ -213,32 +213,33 @@ int main(int argc, char const *argv[]) {
     std::cout << "Found " << files_pgn.size() << " pgn files, creating " << files_chunked.size()
               << " chunks for processing." << std::endl;
 
+    std::unordered_map<std::string, int> pos_map;
+
     // Create a thread pool
     ThreadPool pool(std::thread::hardware_concurrency());
 
     // Futures hold the results of each thread
-    std::vector<std::future<std::unordered_map<std::string, int>>> fut;
+    std::mutex g_i_mutex;
 
     const auto t0 = std::chrono::high_resolution_clock::now();
 
     for (const auto &files : files_chunked) {
-        fut.emplace_back(pool.enqueue([&files]() {
+        pool.enqueue([&files, &g_i_mutex, &pos_map]() {
             PosAnalyzer analyzer = PosAnalyzer();
+            const auto map = analyzer.pos_map(files);
 
-            return analyzer.pos_map(files);
-        }));
+            {
+                const std::lock_guard<std::mutex> lock(g_i_mutex);
+
+                for (const auto &pair : map) {
+                    pos_map[pair.first] += pair.second;
+                }
+            }
+        });
     }
 
-    std::unordered_map<std::string, int> pos_map;
-
-    // Combine the results from all threads
-    for (auto &f : fut) {
-        auto local_map = f.get();
-
-        for (const auto &pair : local_map) {
-            pos_map[pair.first] += pair.second;
-        }
-    }
+    // Wait for all threads to finish
+    pool.wait();
 
     const auto t1 = std::chrono::high_resolution_clock::now();
 

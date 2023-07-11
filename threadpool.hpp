@@ -38,59 +38,35 @@ class ThreadPool {
         return res;
     }
 
-    void resize(std::size_t num_threads) {
-        if (num_threads == 0)
-            throw std::invalid_argument("Warning: ThreadPool::resize() - num_threads cannot be 0");
+    ~ThreadPool() { wait(); }
 
-        if (num_threads == workers_.size()) return;
+    void wait() {
+        if (stop_) return;
 
-        kill();
-
-        stop_ = false;
-
-        workers_.clear();
-        workers_.resize(num_threads);
-
-        for (std::size_t i = 0; i < num_threads; ++i) workers_.emplace_back([this] { work(); });
-    }
-
-    void kill() {
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
             stop_ = true;
-            tasks_ = {};
         }
 
         condition_.notify_all();
+
         for (auto &worker : workers_) {
             if (worker.joinable()) {
                 worker.join();
             }
         }
-
-        workers_.clear();
     }
-
-    ~ThreadPool() { kill(); }
-
-    std::size_t queueSize() {
-        std::unique_lock<std::mutex> lock(this->queue_mutex_);
-        return tasks_.size();
-    }
-
-    bool getStop() { return stop_; }
 
    private:
     void work() {
-        while (!this->stop_) {
+        while (true) {
             std::function<void()> task;
             {
-                std::unique_lock<std::mutex> lock(this->queue_mutex_);
-                this->condition_.wait(lock,
-                                      [this] { return this->stop_ || !this->tasks_.empty(); });
-                if (this->stop_ && this->tasks_.empty()) return;
-                task = std::move(this->tasks_.front());
-                this->tasks_.pop();
+                std::unique_lock<std::mutex> lock(queue_mutex_);
+                condition_.wait(lock, [this] { return stop_ || !tasks_.empty(); });
+                if (stop_ && tasks_.empty()) return;
+                task = std::move(tasks_.front());
+                tasks_.pop();
             }
             task();
         }
