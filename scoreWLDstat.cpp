@@ -23,15 +23,39 @@ using namespace chess;
 
 namespace fs = std::filesystem;
 
+enum class Result { WIN, LOSS, DRAW };
+
 struct ResultKey {
-    std::string white;
-    std::string black;
+    Result white;
+    Result black;
 };
+
+typedef std::tuple<Result, int, int, int> map_key_t;
+
+struct key_hash : public std::unary_function<map_key_t, std::size_t> {
+    std::size_t operator()(const map_key_t &k) const {
+        std::uint32_t hash = static_cast<int>(std::get<0>(k));
+        hash ^= std::get<1>(k) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+        hash ^= std::get<2>(k) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+        hash ^= std::get<3>(k) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+        return hash;
+    }
+};
+
+struct key_equal : public std::binary_function<map_key_t, map_key_t, bool> {
+    bool operator()(const map_key_t &v0, const map_key_t &v1) const {
+        return (std::get<0>(v0) == std::get<0>(v1) && std::get<1>(v0) == std::get<1>(v1) &&
+                std::get<2>(v0) == std::get<2>(v1)) &&
+               std::get<3>(v0) == std::get<3>(v1);
+    }
+};
+
+using map_t = std::unordered_map<map_key_t, int, key_hash, key_equal>;
 
 class PosAnalyzer {
    public:
-    [[nodiscard]] std::unordered_map<std::string, int> pos_map(std::vector<std::string> files) {
-        std::unordered_map<std::string, int> pos_map;
+    [[nodiscard]] map_t pos_map(std::vector<std::string> files) {
+        map_t pos_map;
         pos_map.reserve(1200000);
 
         for (auto file : files) {
@@ -54,14 +78,14 @@ class PosAnalyzer {
                 ResultKey key;
 
                 if (result == "1-0") {
-                    key.white = "W";
-                    key.black = "L";
+                    key.white = Result::WIN;
+                    key.black = Result::LOSS;
                 } else if (result == "0-1") {
-                    key.white = "L";
-                    key.black = "W";
+                    key.white = Result::LOSS;
+                    key.black = Result::WIN;
                 } else if (result == "1/2-1/2") {
-                    key.white = "D";
-                    key.black = "D";
+                    key.white = Result::DRAW;
+                    key.black = Result::DRAW;
                 } else {
                     continue;
                 }
@@ -133,11 +157,8 @@ class PosAnalyzer {
                         const auto turn =
                             board.sideToMove() == Color::WHITE ? key.white : key.black;
 
-                        const auto map_key = "('" + turn + "', " + std::to_string(plieskey) + ", " +
-                                             std::to_string(matcountkey) + ", " +
-                                             std::to_string(score_key) + ")";
-
-                        pos_map[map_key]++;
+                        const auto key = std::make_tuple(turn, plieskey, matcountkey, score_key);
+                        pos_map[key] += 1;
                     }
 
                     board.makeMove(move.move);
@@ -213,7 +234,7 @@ int main(int argc, char const *argv[]) {
     std::cout << "Found " << files_pgn.size() << " pgn files, creating " << files_chunked.size()
               << " chunks for processing." << std::endl;
 
-    std::unordered_map<std::string, int> pos_map;
+    map_t pos_map;
     pos_map.reserve(1200000);
 
     // Create a thread pool
@@ -235,6 +256,8 @@ int main(int argc, char const *argv[]) {
                 for (const auto &pair : map) {
                     pos_map[pair.first] += pair.second;
                 }
+
+                std::cout << "map size " << map.size() << std::endl;
             }
         });
     }
@@ -254,10 +277,15 @@ int main(int argc, char const *argv[]) {
 
     nlohmann::json j;
 
-    for (const auto &pair : pos_map) {
-        j[pair.first] = pair.second;
-        total += pair.second;
-    }
+    // for (const auto &pair : pos_map) {
+    //     const auto map_key = "('" + pair.first[0] + "', " + std::to_string(plieskey) +
+    //                          ",
+    //                          " +
+    //                          std::to_string(matcountkey) +
+    //                          ", " + std::to_string(score_key) + ")";
+    //     j[pair.first] = pair.second;
+    //     total += pair.second;
+    // }
 
     outFile << j.dump(4);
 
