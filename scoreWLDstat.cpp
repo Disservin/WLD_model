@@ -39,22 +39,6 @@ struct key_hash : public std::unary_function<map_key_t, std::size_t> {
         hash ^= std::get<2>(k) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
         hash ^= std::get<3>(k) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
         return hash;
-        // Normalize the values to fit within the range [0, UINT32_MAX]
-        // auto a = static_cast<int>(std::get<0>(k));  // Range: [0, 2]
-        // auto b = std::get<1>(k);                    // Range: [0, 400]
-        // auto c = std::get<2>(k) - 2;                // Range: [0, 30]
-        // auto d = std::get<3>(k) - 1500;             // Range: [0, 3000]
-
-        // // Scale the normalized values to spread them across a larger range
-        // a *= 1000000000;  // Range: [0, 2000000000]
-        // b *= 1000000;     // Range: [0, 400000000]
-        // c *= 10000000;    // Range: [0, 300000000]
-        // d *= 1000;        // Range: [0, 3000000]
-
-        // // Combine the scaled values using XOR and a constant
-        // std::uint32_t hash = a ^ b ^ c ^ d;
-
-        // return hash;
     }
 };
 
