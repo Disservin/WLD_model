@@ -1206,6 +1206,7 @@ inline void Board::setFen(std::string fen) {
     castling_rights_.clearAllCastlingRights();
 
     for (char i : castling) {
+        if (i == '-') break;
         if (!chess960_) {
             if (i == 'K')
                 castling_rights_
