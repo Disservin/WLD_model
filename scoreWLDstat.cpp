@@ -32,7 +32,7 @@ class PosAnalyzer {
    public:
     [[nodiscard]] std::unordered_map<std::string, int> pos_map(std::vector<std::string> files) {
         std::unordered_map<std::string, int> pos_map;
-        pos_map.reserve(70000);
+        pos_map.reserve(1200000);
 
         for (auto file : files) {
             std::ifstream pgnFile(file);
@@ -206,7 +206,7 @@ int main(int argc, char const *argv[]) {
         files_pgn = getFiles();
     }
 
-    int targetchunks = 100 * std::max(1, int(std::thread::hardware_concurrency()));
+    int targetchunks = 4 * std::max(1, int(std::thread::hardware_concurrency()));
 
     std::vector<std::vector<std::string>> files_chunked = chunkPgns(files_pgn, targetchunks);
 
@@ -214,6 +214,7 @@ int main(int argc, char const *argv[]) {
               << " chunks for processing." << std::endl;
 
     std::unordered_map<std::string, int> pos_map;
+    pos_map.reserve(1200000);
 
     // Create a thread pool
     ThreadPool pool(std::thread::hardware_concurrency());
