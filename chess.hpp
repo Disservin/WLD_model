@@ -2770,7 +2770,8 @@ namespace uci {
 /// @param board
 /// @param san
 /// @return
-[[nodiscard]] inline Move parseSan(const Board &board, std::string san) {
+[[nodiscard]] inline Move parseSan(const Board &board, std::string san,
+                                   std::vector<PgnMove> &moves_prev) {
     Movelist moves;
     movegen::legalmoves(moves, board);
 
@@ -2784,6 +2785,11 @@ namespace uci {
             }
         }
 
+        for (auto move : moves_prev) {
+            std::cout << move.move << std::endl;
+            std::cout << move.comment << std::endl;
+        }
+
         throw std::runtime_error("Illegal San, Step 1: " + san);
 
     } else if (san == "0-0-0" || san == "0-0-0+" || san == "0-0-0#" || san == "O-O-O" ||
@@ -2792,6 +2798,11 @@ namespace uci {
             if (move.typeOf() == Move::CASTLING && move.to() < move.from()) {
                 return move;
             }
+        }
+
+        for (auto move : moves_prev) {
+            std::cout << move.move << std::endl;
+            std::cout << move.comment << std::endl;
         }
 
         throw std::runtime_error("Illegal San, Step 2: " + san);
@@ -3002,7 +3013,7 @@ inline void extractMoves(Board &board, std::vector<PgnMove> &moves, std::string_
             readingComment = false;
 
             if (!move.empty()) {
-                const auto move_internal = uci::parseSan(board, move);
+                const auto move_internal = uci::parseSan(board, move, moves);
                 moves.push_back({move_internal, comment});
 
                 board.makeMove(move_internal);
@@ -3016,7 +3027,7 @@ inline void extractMoves(Board &board, std::vector<PgnMove> &moves, std::string_
             }
 
             if (!move.empty()) {
-                const auto move_internal = uci::parseSan(board, move);
+                const auto move_internal = uci::parseSan(board, move, moves);
                 moves.push_back({move_internal, comment});
 
                 board.makeMove(move_internal);
