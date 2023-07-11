@@ -1,16 +1,11 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
-#include <cmath>
 #include <functional>
 #include <future>
-#include <iostream>
 #include <queue>
 #include <stdexcept>
 #include <thread>
-#include <type_traits>
-#include <vector>
 
 /// @brief
 /// https://github.com/Disservin/fast-chess/blob/master/src/matchmaking/threadpool.hpp
