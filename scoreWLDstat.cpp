@@ -199,8 +199,8 @@ void ana_game(map_t &pos_map, const std::optional<Game> &game) {
     }
 }
 
-[[nodiscard]] map_t ana_files(std::vector<std::string> files) {
-    map_t pos_map;
+void ana_files(std::vector<std::string> files, map_t &pos_map) {
+    pos_map.clear();
     pos_map.reserve(map_size);
 
     for (const auto &file : files) {
@@ -219,8 +219,6 @@ void ana_game(map_t &pos_map, const std::optional<Game> &game) {
 
         pgn_file.close();
     }
-
-    return pos_map;
 }
 
 }  // namespace analysis
@@ -306,6 +304,13 @@ int main(int argc, char const *argv[]) {
     map_t pos_map;
     pos_map.reserve(analysis::map_size);
 
+    std::vector<map_t> maps;
+
+    for (std::size_t i = 0; i < std::thread::hardware_concurrency(); i++) {
+        maps.push_back(map_t());
+        maps[i].reserve(analysis::map_size);
+    }
+
     // Mutex for pos_map access
     std::mutex map_mutex;
 
@@ -318,8 +323,8 @@ int main(int argc, char const *argv[]) {
     const auto t0 = std::chrono::high_resolution_clock::now();
 
     for (const auto &files : files_chunked) {
-        pool.enqueue([&files, &map_mutex, &pos_map, &files_chunked]() {
-            const auto map = analysis::ana_files(files);
+        pool.enqueue([&files, &map_mutex, &pos_map, &files_chunked, &maps](std::size_t threadId) {
+            analysis::ana_files(files, maps[threadId]);
 
             total_chunks++;
 
@@ -327,7 +332,7 @@ int main(int argc, char const *argv[]) {
             {
                 const std::lock_guard<std::mutex> lock(map_mutex);
 
-                for (const auto &pair : map) {
+                for (const auto &pair : maps[threadId]) {
                     pos_map[pair.first] += pair.second;
                 }
 

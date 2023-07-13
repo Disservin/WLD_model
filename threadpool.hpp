@@ -16,7 +16,7 @@ class ThreadPool {
     template <class F, class... Args>
     void enqueue(F &&func, Args &&...args) {
         auto task = std::make_shared<std::packaged_task<void()>>(
-            std::bind(std::forward<F>(func), std::forward<Args>(args)...));
+            [=]() { func(std::forward<Args>(args)..., getThreadId()); });
 
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
@@ -24,6 +24,18 @@ class ThreadPool {
             tasks_.emplace([task]() { (*task)(); });
         }
         condition_.notify_one();
+    }
+
+    std::size_t getThreadId() {
+        std::thread::id this_id = std::this_thread::get_id();
+        std::size_t thread_id = 0;
+        for (std::size_t i = 0; i < workers_.size(); ++i) {
+            if (workers_[i].get_id() == this_id) {
+                thread_id = i;
+                break;
+            }
+        }
+        return thread_id;
     }
 
     ~ThreadPool() { wait(); }
