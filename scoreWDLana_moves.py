@@ -6,7 +6,7 @@ import numpy as np
 from scipy.interpolate import griddata
 
 
-with open("scoreWLDstat.json", "r") as infile:
+with open("scoreWDLstat.json", "r") as infile:
     inputdata = json.load(infile)
 
 print("read data")
@@ -20,12 +20,14 @@ for k, v in inpdict.items():
     (result, move, material, score) = k
     if score < -400 or score > 400:
         continue
+    if move < 10 or move > 120:
+        continue
     if result == "W":
-        win[(score, material)] += v
+        win[(score, move)] += v
     elif result == "L":
-        loss[(score, material)] += v
+        loss[(score, move)] += v
     elif result == "D":
-        draw[(score, material)] += v
+        draw[(score, move)] += v
 
 print("counted")
 
@@ -41,11 +43,11 @@ for coord in coords:
     x, y = coord
     xs.append(x)
     ys.append(y)
-    zs.append(win[coord] / total)
+    zs.append(draw[coord] / total)
 
 print("processing done, plotting")
 font = {"family": "DejaVu Sans", "weight": "normal", "size": 20}
-grid_x, grid_y = np.mgrid[-200:400:30j, 0:78:38j]
+grid_x, grid_y = np.mgrid[-400:400:40j, 10:120:22j]
 points = np.array(list(zip(xs, ys)))
 zz = griddata(points, zs, (grid_x, grid_y), method="cubic")
 fig = plt.figure(figsize=(6, 5))
@@ -59,10 +61,10 @@ CS = plt.contour(
 )
 ax.clabel(CS, inline=1, colors="black")
 ax.set_title(
-    "Fraction of positions, with a given material value and score, leading to a win"
+    "Fraction of positions, with a given move number and score, leading to a draw"
 )
 ax.set_xlabel("score")
-ax.set_ylabel("material (1,3,3,5,9)")
+ax.set_ylabel("move")
 ax.yaxis.grid(True)
 ax.xaxis.grid(True)
 plt.show()

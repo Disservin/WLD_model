@@ -25,7 +25,7 @@ struct ResultKey {
     Result black;
 };
 
-/// @brief [WLD, plies, score, score] tuple key for the position map
+/// @brief [WDL, plies, score, score] tuple key for the position map
 using map_key_t = std::tuple<Result, int, int, int>;
 
 struct key_hash {
@@ -361,7 +361,7 @@ int main(int argc, char const *argv[]) {
     }
 
     // save json to file
-    std::ofstream outFile("scoreWLDstat.json");
+    std::ofstream outFile("scoreWDLstat.json");
     outFile << j.dump(2);
     outFile.close();
 

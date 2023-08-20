@@ -43,7 +43,7 @@ fig.suptitle("Summary of win-loss-draw model analysis", fontsize="x-large")
 # read score stats as obtained from fishtest games
 #
 print("reading data")
-with open("scoreWLDstat.json", "r") as infile:
+with open("scoreWDLstat.json", "r") as infile:
     inputdata = json.load(infile)
 print("Done.")
 
@@ -105,6 +105,7 @@ for coord in coords:
 
 def winmodel(x, a, b):
     return 1.0 / (1.0 + np.exp(-(x - a) / b))
+
 
 def poly3(x, a, b, c, d):
     xnp = np.asarray(x) / 32
@@ -236,7 +237,11 @@ isum_b = int(fsum_b)
 print("const int NormalizeToPawnValue = {};".format(isum_a))
 print("Corresponding spread = {};".format(isum_b))
 print("Corresponding normalized spread = {};".format(fsum_b / fsum_a))
-print("Draw rate at 0.0 eval at move 32 = {};".format(1 - 2 / (1 + math.exp(fsum_a / fsum_b))))
+print(
+    "Draw rate at 0.0 eval at move 32 = {};".format(
+        1 - 2 / (1 + math.exp(fsum_a / fsum_b))
+    )
+)
 
 print("Parameters in internal value units: ")
 
@@ -327,7 +332,8 @@ normalized_axis(axs[1, 2])
 
 fig.align_labels()
 
-plt.savefig("WLD_model_summary.png", dpi=save_dpi)
+plt.savefig("WDL_model_summary.png", dpi=save_dpi)
 if args.show:
-   plt.show()
+    plt.show()
+
 plt.close()
