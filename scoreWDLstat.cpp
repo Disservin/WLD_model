@@ -30,13 +30,13 @@ using map_t =
     phmap::parallel_flat_hash_map<Key, int, std::hash<Key>, std::equal_to<Key>,
                                   std::allocator<std::pair<const Key, int>>, 8, std::mutex>;
 
-map_t pos_map = {};
-
 // map to collect metadata for tests
 using map_meta = std::unordered_map<std::string, TestMetaData>;
 
 // map to hold move counters that cutechess-cli changed from original FENs
 using map_fens = std::unordered_map<std::string, std::pair<int, int>>;
+
+map_t pos_map = {};
 
 std::atomic<std::size_t> total_chunks = 0;
 std::atomic<std::size_t> total_games  = 0;
@@ -86,22 +86,26 @@ class Analyze : public pgn::Visitor {
     void header(std::string_view key, std::string_view value) override {
         if (key == "FEN") {
             std::regex p("^(.+) (.+) 0 1$");
-            std::smatch match;
-            std::string value_str(value);
+            std::cmatch match;
 
             // revert changes by cutechess-cli to move counters, but trust it on ep square
-            if (!fixfen_map.empty() && std::regex_search(value_str, match, p) && match.size() > 2) {
-                std::string fen = match[1];
-                auto it         = fixfen_map.find(fen);
+            if (!fixfen_map.empty() && std::regex_search(value.data(), match, p) &&
+                match.size() > 2) {
+                const auto fen = match[1];
+                const auto it  = fixfen_map.find(fen);
+
                 if (it == fixfen_map.end()) {
                     std::cerr << "Could not find FEN " << fen << " in fixFENsource." << std::endl;
                     std::exit(1);
                 }
-                const auto &fix         = it->second;
-                std::string ep          = match[2];  // trust cutechess-cli on this one
-                std::string fixed_value = fen + " " + ep + " " + std::to_string(fix.first) + " " +
-                                          std::to_string(fix.second);
-                board.setFen(fixed_value);
+
+                const auto &fix      = it->second;
+                const std::string ep = match[2];  // trust cutechess-cli on this one
+
+                std::string fixed_fen = fen.str() + " " + ep + " " + std::to_string(fix.first) +
+                                        " " + std::to_string(fix.second);
+
+                board.setFen(fixed_fen);
             } else {
                 board.setFen(value);
             }
@@ -129,10 +133,8 @@ class Analyze : public pgn::Visitor {
             }
         }
 
-        if (key == "Termination") {
-            if (value == "time forfeit" || value == "abandoned") {
-                goodTermination = false;
-            }
+        if (key == "Termination" && (value == "time forfeit" || value == "abandoned")) {
+            goodTermination = false;
         }
 
         if (key == "White") {
@@ -146,8 +148,8 @@ class Analyze : public pgn::Visitor {
         skip = !(hasResult && goodTermination && goodResult);
     }
 
-    void move(std::string_view move, std::string_view comment) override {
-        if (skip) {
+    void move(std::string_view uci_move, std::string_view comment) override {
+        if (skip || board.fullMoveNumber() > 200) {
             return;
         }
 
@@ -155,26 +157,19 @@ class Analyze : public pgn::Visitor {
             return;
         }
 
-        Move m;
-
-        m = uci::parseSanInternal(board, move, moves);
-
         const size_t delimiter_pos = comment.find('/');
 
         Key key;
         key.eval = 1002;
 
-        if (!do_filter || filter_side == board.sideToMove()) {
-            if (delimiter_pos != std::string::npos && comment != "book") {
+        if ((!do_filter || filter_side == board.sideToMove()) && comment != "book") {
+            const size_t delimiter_pos = comment.find('/');
+
+            if (delimiter_pos != std::string::npos) {
                 const auto match_eval = comment.substr(0, delimiter_pos);
 
                 if (match_eval[1] == 'M') {
-                    if (match_eval[0] == '+') {
-                        key.eval = 1001;
-                    } else {
-                        key.eval = -1001;
-                    }
-
+                    key.eval = (match_eval[0] == '+') ? 1001 : -1001;
                 } else {
                     int eval = 100 * fast_stof(match_eval.data());
 
@@ -191,21 +186,23 @@ class Analyze : public pgn::Visitor {
         }
 
         if (key.eval != 1002) {  // an eval was found
-            key.result = board.sideToMove() == Color::WHITE ? resultkey.white : resultkey.black;
-            key.move   = board.fullMoveNumber();
+
             const auto knights = builtin::popcount(board.pieces(PieceType::KNIGHT));
             const auto bishops = builtin::popcount(board.pieces(PieceType::BISHOP));
             const auto rooks   = builtin::popcount(board.pieces(PieceType::ROOK));
             const auto queens  = builtin::popcount(board.pieces(PieceType::QUEEN));
             const auto pawns   = builtin::popcount(board.pieces(PieceType::PAWN));
-            key.material       = 9 * queens + 5 * rooks + 3 * bishops + 3 * knights + pawns;
+
+            key.result   = board.sideToMove() == Color::WHITE ? resultkey.white : resultkey.black;
+            key.material = 9 * queens + 5 * rooks + 3 * bishops + 3 * knights + pawns;
+            key.move     = board.fullMoveNumber();
 
             pos_map.lazy_emplace_l(
                 std::move(key), [&](map_t::value_type &v) { v.second += 1; },
                 [&](const map_t::constructor &ctor) { ctor(std::move(key), 1); });
         }
 
-        board.makeMove(m);
+        board.makeMove(uci::parseSanInternal(board, uci_move.data(), moves));
     }
 
     void endPgn() override {
@@ -261,7 +258,7 @@ void ana_files(const std::vector<std::string> &files, const std::string &regex_e
             }
         };
 
-        if (file.size() >= 3 && file.substr(file.size() - 3) == ".gz") {
+        if (fs::path(file).extension() == ".gz") {
             igzstream input(file.c_str());
             pgn_iterator(input);
         } else {
@@ -276,6 +273,7 @@ void ana_files(const std::vector<std::string> &files, const std::string &regex_e
 
 [[nodiscard]] map_fens get_fixfen(std::string file) {
     map_fens fixfen_map;
+
     if (file.empty()) {
         return fixfen_map;
     }
@@ -284,14 +282,14 @@ void ana_files(const std::vector<std::string> &files, const std::string &regex_e
         std::string line;
         while (std::getline(iss, line)) {
             std::istringstream iss(line);
-            std::string key, f1, f2, f3, ep;
-            int halfmove, fullmove = 0;
+            std::string f1, f2, f3, ep;
+            int halfmove = 0, fullmove = 0;
 
             iss >> f1 >> f2 >> f3 >> ep >> halfmove >> fullmove;
 
             if (!fullmove) continue;
 
-            key              = f1 + ' ' + f2 + ' ' + f3;
+            auto key         = f1 + ' ' + f2 + ' ' + f3;
             auto fixfen_data = std::pair<int, int>(halfmove, fullmove);
 
             if (fixfen_map.find(key) != fixfen_map.end()) {
@@ -305,7 +303,7 @@ void ana_files(const std::vector<std::string> &files, const std::string &regex_e
         }
     };
 
-    if (file.size() >= 3 && file.substr(file.size() - 3) == ".gz") {
+    if (fs::path(file).extension() == ".gz") {
         igzstream input(file.c_str());
         fen_iterator(input);
     } else {
@@ -316,17 +314,22 @@ void ana_files(const std::vector<std::string> &files, const std::string &regex_e
     return fixfen_map;
 }
 
+[[nodiscard]] std::string get_test(const std::string &value) {
+    return value.substr(0, value.find_first_of('-'));
+}
+
 [[nodiscard]] map_meta get_metadata(const std::vector<std::string> &file_list,
                                     bool allow_duplicates) {
     map_meta meta_map;
     std::unordered_map<std::string, std::string> test_map;  // map to check for duplicate tests
     std::set<std::string> test_warned;
+
     for (const auto &pathname : file_list) {
         fs::path path(pathname);
         std::string directory     = path.parent_path().string();
         std::string filename      = path.filename().string();
-        std::string test_id       = filename.substr(0, filename.find_last_of('-'));
-        std::string test_filename = pathname.substr(0, pathname.find_last_of('-'));
+        std::string test_id       = get_test(filename);
+        std::string test_filename = get_test(pathname);
 
         if (test_map.find(test_id) == test_map.end()) {
             test_map[test_id] = test_filename;
@@ -361,7 +364,7 @@ void ana_files(const std::vector<std::string> &files, const std::string &regex_e
 void filter_files_book(std::vector<std::string> &file_list, const map_meta &meta_map,
                        const std::regex &regex_book, bool invert) {
     const auto pred = [&regex_book, invert, &meta_map](const std::string &pathname) {
-        std::string test_filename = pathname.substr(0, pathname.find_last_of('-'));
+        std::string test_filename = get_test(pathname);
 
         // check if metadata and "book" entry exist
         if (meta_map.find(test_filename) != meta_map.end() &&
@@ -380,19 +383,22 @@ void filter_files_book(std::vector<std::string> &file_list, const map_meta &meta
 void filter_files_revision(std::vector<std::string> &file_list, const map_meta &meta_map,
                            const std::regex &regex_rev) {
     const auto pred = [&regex_rev, &meta_map](const std::string &pathname) {
-        std::string test_filename = pathname.substr(0, pathname.find_last_of('-'));
+        std::string test_filename = get_test(pathname);
 
         if (meta_map.find(test_filename) == meta_map.end()) {
             return true;
         }
+
         if (meta_map.at(test_filename).resolved_base.has_value() &&
             std::regex_match(meta_map.at(test_filename).resolved_base.value(), regex_rev)) {
             return false;
         }
+
         if (meta_map.at(test_filename).resolved_new.has_value() &&
             std::regex_match(meta_map.at(test_filename).resolved_new.value(), regex_rev)) {
             return false;
         }
+
         return true;
     };
 
@@ -401,7 +407,7 @@ void filter_files_revision(std::vector<std::string> &file_list, const map_meta &
 
 void filter_files_sprt(std::vector<std::string> &file_list, const map_meta &meta_map) {
     const auto pred = [&meta_map](const std::string &pathname) {
-        std::string test_filename = pathname.substr(0, pathname.find_last_of('-'));
+        std::string test_filename = get_test(pathname);
 
         // check if metadata and "sprt" entry exist
         if (meta_map.find(test_filename) != meta_map.end() &&
@@ -593,9 +599,11 @@ int main(int argc, char const *argv[]) {
     }
 
     std::string fixfen_source;
+
     if (find_argument(args, pos, "--fixFENsource")) {
         fixfen_source = *std::next(pos);
     }
+
     auto fixfen_map = get_fixfen(fixfen_source);
 
     if (find_argument(args, pos, "--matchEngine")) {
