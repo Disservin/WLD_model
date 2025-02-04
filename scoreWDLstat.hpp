@@ -24,17 +24,25 @@ struct Key {
     bool operator==(const Key &k) const {
         return result == k.result && move == k.move && material == k.material && eval == k.eval;
     }
-    operator std::size_t() const {
-        // golden ratio hashing, thus 0x9e3779b9
-        std::uint32_t hash = static_cast<int>(result);
-        hash ^= move + 0x9e3779b9 + (hash << 6) + (hash >> 2);
-        hash ^= material + 0x9e3779b9 + (hash << 6) + (hash >> 2);
-        hash ^= eval + 0x9e3779b9 + (hash << 6) + (hash >> 2);
-        return hash;
-    }
+
     operator std::string() const {
         return "('" + std::string(1, static_cast<char>(result)) + "', " + std::to_string(move) +
                ", " + std::to_string(material) + ", " + std::to_string(eval) + ")";
+    }
+
+    operator std::size_t() const {
+        std::size_t hash = 0;
+
+        hash = static_cast<std::size_t>(static_cast<char>(result)) * 0x9e3779b9;
+        hash ^= (static_cast<std::size_t>(move & 0xFFFF) << 16);
+        hash ^= static_cast<std::size_t>(material) * 0x85ebca6b;
+        hash ^= static_cast<std::size_t>(eval) * 0xc2b2ae35;
+
+        hash ^= hash >> 16;
+        hash *= 0x1f1f1f1f;
+        hash ^= hash >> 16;
+
+        return hash;
     }
 };
 
