@@ -28,9 +28,13 @@ using json   = nlohmann::json;
 using namespace chess;
 
 // unordered map to count (result, move, material, eval) tuples in pgns
-using map_t =
-    phmap::parallel_flat_hash_map<Key, int, std::hash<Key>, std::equal_to<Key>,
-                                  std::allocator<std::pair<const Key, int>>, 8, std::mutex>;
+// using map_t =
+//     phmap::parallel_flat_hash_map<Key, int, std::hash<Key>, std::equal_to<Key>,
+//                                   std::allocator<std::pair<const Key, int>>, 8, std::mutex>;
+
+// try multiple hashmaps which are joined at the end
+using map_t = phmap::parallel_flat_hash_map<Key, int, std::hash<Key>, std::equal_to<Key>,
+                                            std::allocator<std::pair<const Key, int>>>;
 
 // map to collect metadata for tests
 using map_meta = std::unordered_map<std::string, TestMetaData>;
@@ -39,7 +43,7 @@ using map_meta = std::unordered_map<std::string, TestMetaData>;
 using map_fens = std::unordered_map<std::string, std::pair<int, int>>;
 
 // concurrent position map
-map_t pos_map                         = {};
+std::vector<map_t> pos_map            = {};
 std::atomic<std::size_t> total_chunks = 0;
 std::atomic<std::size_t> total_games  = 0;
 
@@ -52,8 +56,12 @@ static constexpr int map_size = 1200000;
 class Analyze : public pgn::Visitor {
    public:
     Analyze(std::string_view file, const std::string &regex_engine, const map_fens &fixfen_map,
-            const int bin_width)
-        : file(file), regex_engine(regex_engine), fixfen_map(fixfen_map), bin_width(bin_width) {}
+            const int bin_width, const int thread_idx)
+        : file(file),
+          regex_engine(regex_engine),
+          fixfen_map(fixfen_map),
+          bin_width(bin_width),
+          idx(thread_idx) {}
 
     virtual ~Analyze() {}
 
@@ -207,7 +215,7 @@ class Analyze : public pgn::Visitor {
             key.material = 9 * queens + 5 * rooks + 3 * bishops + 3 * knights + pawns;
 
             // insert or update the position map
-            pos_map.lazy_emplace_l(
+            pos_map[idx].lazy_emplace_l(
                 std::move(key), [&](map_t::value_type &v) { v.second += 1; },
                 [&](const map_t::constructor &ctor) { ctor(std::move(key), 1); });
         }
@@ -264,13 +272,16 @@ class Analyze : public pgn::Visitor {
     std::string black;
 
     ResultKey resultkey;
+
+    int idx;
 };
 
 void ana_files(const std::vector<std::string> &files, const std::string &regex_engine,
-               const map_fens &fixfen_map, const int bin_width) {
+               const map_fens &fixfen_map, const int bin_width, int thread_idx) {
     for (const auto &file : files) {
         const auto pgn_iterator = [&](std::istream &iss) {
-            auto vis = std::make_unique<Analyze>(file, regex_engine, fixfen_map, bin_width);
+            auto vis =
+                std::make_unique<Analyze>(file, regex_engine, fixfen_map, bin_width, thread_idx);
 
             pgn::StreamParser parser(iss);
 
@@ -558,21 +569,21 @@ void process(const std::vector<std::string> &files_pgn, const std::string &regex
     std::cout << "\rProgress: " << total_chunks << "/" << files_chunked.size() << std::flush;
 
     for (const auto &files : files_chunked) {
-        pool.enqueue(
-            [&files, &regex_engine, &fixfen_map, &progress_mutex, &files_chunked, &bin_width]() {
-                analysis::ana_files(files, regex_engine, fixfen_map, bin_width);
+        pool.enqueue([&files, &regex_engine, &fixfen_map, &progress_mutex, &files_chunked,
+                      &bin_width](size_t thread_idx) {
+            analysis::ana_files(files, regex_engine, fixfen_map, bin_width, thread_idx);
 
-                total_chunks++;
+            total_chunks++;
 
-                // Limit the scope of the lock
-                {
-                    const std::lock_guard<std::mutex> lock(progress_mutex);
+            // Limit the scope of the lock
+            {
+                const std::lock_guard<std::mutex> lock(progress_mutex);
 
-                    // Print progress
-                    std::cout << "\rProgress: " << total_chunks << "/" << files_chunked.size()
-                              << std::flush;
-                }
-            });
+                // Print progress
+                std::cout << "\rProgress: " << total_chunks << "/" << files_chunked.size()
+                          << std::flush;
+            }
+        });
     }
 
     // Wait for all threads to finish
@@ -586,10 +597,18 @@ void save(const std::string &json_filename) {
 
     json j;
 
-    for (const auto &pair : pos_map) {
-        const auto map_key_t = static_cast<std::string>(pair.first);
-        j[map_key_t]         = pair.second;
-        total_pos += pair.second;
+    // for (const auto &pair : pos_map) {
+    //     const auto map_key_t = static_cast<std::string>(pair.first);
+    //     j[map_key_t]         = pair.second;
+    //     total_pos += pair.second;
+    // }
+
+    for (const auto &map : pos_map) {
+        for (const auto &pair : map) {
+            const auto map_key_t = static_cast<std::string>(pair.first);
+            j[map_key_t]         = pair.second;
+            total_pos += pair.second;
+        }
     }
 
     // save json to file
@@ -645,8 +664,6 @@ int main(int argc, char const *argv[]) {
     }
 #endif
 
-    pos_map.reserve(analysis::map_size);
-
     CommandLine cmd(argc, argv);
 
     std::vector<std::string> files_pgn;
@@ -691,6 +708,10 @@ int main(int argc, char const *argv[]) {
                 std::exit(1);
             }
         }
+    }
+
+    for (int i = 0; i < concurrency; ++i) {
+        pos_map.emplace_back(analysis::map_size / concurrency);
     }
 
     std::cout << "Found " << files_pgn.size() << " .pgn(.gz) files in total." << std::endl;

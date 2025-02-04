@@ -21,6 +21,7 @@ struct ResultKey {
 struct Key {
     Result result;             // game result from PoV of side to move
     int move, material, eval;  // move number, material count, engine's eval
+
     bool operator==(const Key &k) const {
         return result == k.result && move == k.move && material == k.material && eval == k.eval;
     }
